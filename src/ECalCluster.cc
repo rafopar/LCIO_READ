@@ -1,0 +1,257 @@
+#include "EVENT/Cluster.h"
+#include <EVENT/CalorimeterHit.h>
+
+#include <ECalCluster.hh>
+
+#include <cmath>
+#include <stdlib.h>
+#include <iostream>
+
+#include <TF1.h>
+#include <TH2D.h>
+#include <TLine.h>
+#include <TCanvas.h>
+#include <TMarker.h>
+
+using namespace std;
+
+//TH2D ECalCluster::h_clust1 = TH2D("h_clust1", "", 42, -283.762, 368.81772, 10, -96.62689, 96.2 );
+//TF1 ECalCluster::f_lin1 = TF1("f_line1", "[0] + [1]*x", -400., 400.);
+//TH2D ECalCluster::h_clust1 = TH2D("h_clust1", "", 250, -283.762, 368.81772, 100, -96.62689, 96.2 );
+
+//TMarker ECalCluster::mark1 = TMarker();
+//TCanvas ECalCluster::c2 = TCanvas("c1", "");
+
+ECalCluster::ECalCluster()
+{
+  //h_clust1.SetStats(0);
+  Reset();
+}
+
+ECalCluster::ECalCluster(EVENT::Cluster *a_LCIO_clust)
+{  
+  Analyze();
+}
+
+void ECalCluster::Reset()
+{
+  t_min = 1000.;
+  t_max = -1.;
+  E_min = 1000.;
+  E_max = -1.;
+  size = -1.;
+  x = -1000.;
+  y = -1000.;
+  z = -1000.;
+  Analyzed = false;
+}
+
+void ECalCluster::SetLCIOCluster(EVENT::Cluster *a_LCIO_clust)
+{
+  LCIO_clust = a_LCIO_clust;
+  Analyze();
+}
+
+void ECalCluster::Analyze()
+{
+  Reset();
+  hits_vec = (EVENT::CalorimeterHitVec)LCIO_clust->getCalorimeterHits();
+  size = hits_vec.size();
+  
+  const float *pos = LCIO_clust->getPosition();
+  x = pos[0];
+  y = pos[1];
+  z = pos[2];
+  E = LCIO_clust->getEnergy();
+
+  for( int ind = 0; ind < size; ind++ )
+    {
+      double cur_hit_energy = hits_vec[ind]->getEnergy();
+      double cur_hit_time = hits_vec[ind]->getTime();
+      
+      if( cur_hit_time < t_min )
+	{
+	  t_min = cur_hit_time;
+	  ind_tmin = ind;
+	}
+      if( cur_hit_time > t_max )
+	{
+	  t_max = cur_hit_time;
+	  ind_tmax = ind;
+	}
+      if( cur_hit_energy < E_min)
+	{
+	  E_min = cur_hit_energy;
+	  ind_Emin = ind;
+	}
+      if( cur_hit_energy > E_max )
+	{
+	  E_max = cur_hit_energy;
+	  ind_Emax = ind;
+	}
+      //cout<<"ind = "<<ind<<"    cur_hit_time = "<<cur_hit_time<<endl;
+    }
+  
+  // cout<<"t_min = "<<t_min<<"   t_max = "<<t_max<<endl;
+  // cin.ignore();
+
+  Analyzed = true;
+}
+
+double ECalCluster::GetShowerMoment(double a, double b) const
+{
+  if( !Analyzed )
+    {
+      cout<<"Please first Analyze the cluster"<<endl;
+      cout<<"Program is exiting"<<endl;
+      exit(1);
+    }
+  
+  double moment = 0;
+  
+  for(int i = 0; i < size; i++ )
+    {
+      const float *hit_pos = hits_vec[i]->getPosition();
+      double x_hit = hit_pos[0];
+      double y_hit = hit_pos[1];
+      double E_hit = hits_vec[i]->getEnergy();
+    
+      double d = abs(b*x_hit - y_hit + a)/sqrt(1. + b*b);
+
+      moment = moment + d*E_hit;
+    }
+  moment = moment/E;
+
+  return moment;
+}
+
+ECalCluster ECalCluster::operator=(const ECalCluster other)
+{
+  hits_vec = other.hits_vec;
+  LCIO_clust = other.LCIO_clust;
+  Analyzed = other.Analyzed;
+  t_min = other.t_min;
+  t_max = other.t_max;
+  E_min = other.E_min;
+  E_max = other.E_max;
+  size = other.size;
+
+  x = other.x;
+  y = other.y;
+  z = other.z;
+  E = other.E;
+
+  ind_tmin = other.ind_tmin;
+  ind_tmax = other.ind_tmax;
+  ind_Emin = other.ind_Emin;
+  ind_Emax = other.ind_Emax;
+  
+
+  return *this;
+}
+
+void ECalCluster::Fill_dE_dt(TH2 *h)
+{
+   if( !Analyzed )
+     {
+       cout<<"Please first Analyze the cluster"<<endl;
+       cout<<"Program is exiting"<<endl;
+       exit(1);
+     }
+
+   double t_Emax = hits_vec[ind_Emax]->getTime(); // Time of a crystal with a maximum energy
+   for( int i = 0; i < size; i++ )
+     {
+       if(i != ind_Emax)
+	 {
+	   double dE = E_max - hits_vec[i]->getEnergy();
+	   double cur_t = hits_vec[i]->getTime();
+	   double dt = cur_t - t_Emax;
+	   h->Fill(dE, dt);
+	 }
+      
+    }
+}
+
+void ECalCluster::Reset_clust_Hist()
+{
+  //h_clust1.Reset();
+}
+
+/*
+void ECalCluster::DrawCluster()
+{
+   for( int ind = 0; ind < size; ind++ )
+     {
+       const float *hit_pos = hits_vec[ind]->getPosition();
+       double x_hit = hit_pos[0];
+       double y_hit = hit_pos[1];
+       double E_hit = hits_vec[ind]->getEnergy();
+
+       h_clust1.Fill(x_hit, y_hit, E_hit);
+
+     }
+
+   mark1.SetMarkerColor(2);
+   mark1.SetMarkerStyle(29);
+
+
+   h_clust1.Draw("colz");
+
+   mark1.DrawMarker(x, y); // Draw a marker at the cluster centre
+}
+
+void ECalCluster::DrawCluster(ECalCluster b)
+{
+  // Loop over this cluster hits and fill histogram with hits
+  for( int ind = 0; ind < size; ind++ )
+    {
+      const float *hit_pos = hits_vec[ind]->getPosition();
+      double x_hit = hit_pos[0];
+      double y_hit = hit_pos[1];
+      double E_hit = hits_vec[ind]->getEnergy();
+
+      h_clust1.Fill(x_hit, y_hit, E_hit);
+      
+    }
+  
+  // Loop over 2nd (b) cluster and fill histogram with hits
+  for( int ind = 0; ind < b.size; ind++ )
+    {
+      const float *hit_pos = b.hits_vec[ind]->getPosition();
+      double x_hit = hit_pos[0];
+      double y_hit = hit_pos[1];
+      double E_hit = b.hits_vec[ind]->getEnergy();
+
+      h_clust1.Fill(x_hit, y_hit, E_hit);
+    }
+  
+   mark1.SetMarkerColor(46);
+   mark1.SetMarkerStyle(29);
+   mark1.SetMarkerSize(1.5);
+   h_clust1.Draw("colz");
+   
+   double b_x = b.x;
+   double b_y = b.y;
+   double b_E = b.E;
+
+   double slope = (b_y - y)/(b_x - x);
+   double p0 = y - slope*x;
+   f_lin1.SetParameters(p0, slope);
+   f_lin1.SetLineStyle(2);
+   f_lin1.Draw("Same");
+
+   TLine *line1 = new TLine(-280., 0., 360., 0.);
+   line1->SetLineColor(4);
+   line1->Draw();
+   
+   mark1.DrawMarker(x, y); // Draw a marker at the cluster centre
+   mark1.DrawMarker(b_x, b_y); // Draw a marker at the cluster centre
+
+   double x_av = (x*E + b_x*b_E)/(E + b_E);
+   double y_av = (y*E + b_y*b_E)/(E + b_E);
+
+   mark1.SetMarkerColor(4);
+   mark1.DrawMarker(x_av, y_av);
+}
+*/
